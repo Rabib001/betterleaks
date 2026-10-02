@@ -301,3 +301,4 @@ Projects and organizations that run Betterleaks. Open a pull request to add your
 - [Moyai](https://moyai.ai/)
 - [Entire.io](https://entire.io/)
 - [LeakTK](https://github.com/leaktk)
+- [CodeRabbit](https://www.coderabbit.ai/)
