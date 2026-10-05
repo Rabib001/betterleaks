@@ -752,22 +752,25 @@ func (br *blobReader) Close() error {
 
 func newGitLogCmd(ctx context.Context, source, logOpts string, logger *slog.Logger) (*gitCmd, error) {
 	sourceClean := filepath.Clean(source)
-	var cmd *exec.Cmd
+	args := []string{"-C", sourceClean, "log", "-p", "-U0", "--diff-merges=first-parent"}
 	if logOpts != "" {
-		args := []string{"-C", sourceClean, "log", "-p", "-U0"}
-
 		userArgs, err := splitGitLogOpts(logOpts)
 		if err != nil {
 			return nil, fmt.Errorf("invalid --log-opts: %w", err)
 		}
 
 		args = append(args, userArgs...)
-		cmd = exec.CommandContext(ctx, "git", args...)
 	} else {
-		cmd = exec.CommandContext(ctx, "git", "-C", sourceClean, "log", "-p", "-U0",
-			"--full-history", "--all", "--diff-filter=tuxdb")
+		args = append(args, "--full-history", "--all", "--diff-filter=tuxdb")
 	}
-	return startGitCmd(cmd, logger)
+	// Own the preamble format so commit messages are indented and cannot be
+	// mistaken for patch headers. Override user formatting before pathspecs.
+	optionsEnd := slices.Index(args, "--")
+	if optionsEnd < 0 {
+		optionsEnd = len(args)
+	}
+	args = slices.Insert(args, optionsEnd, "--format=medium", "--no-abbrev-commit")
+	return startGitCmd(exec.CommandContext(ctx, "git", args...), logger)
 }
 
 // splitGitLogOpts parses user-provided --log-opts with a small shell-inspired
@@ -936,7 +939,10 @@ func listenForStdErr(stderr io.ReadCloser, errCh chan<- error, logger *slog.Logg
 // commits. --no-walk keeps worker partitions deterministic and non-overlapping.
 func newGitLogCommitsCmd(ctx context.Context, source string, commits []string, logger *slog.Logger) (*gitCmd, error) {
 	sourceClean := filepath.Clean(source)
-	args := []string{"-C", sourceClean, "log", "-p", "-U0", "--no-walk", "--stdin", "--diff-filter=tuxdb"}
+	args := []string{"-C", sourceClean, "log", "-p", "-U0", "--diff-merges=first-parent", "--no-walk", "--stdin", "--diff-filter=tuxdb"}
+	// Match the preamble format used by the full-history scan, regardless of
+	// the repository's format.pretty configuration.
+	args = append(args, "--format=medium", "--no-abbrev-commit")
 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	// Let os/exec own the input-copy goroutine so Wait joins it on every exit.
@@ -949,7 +955,9 @@ func newGitLogCommitsCmd(ctx context.Context, source string, commits []string, l
 // once even when multiple refs and reflog entries refer to it.
 func listCommits(ctx context.Context, source string, logOpts string, includeReflogs bool) ([]string, error) {
 	sourceClean := filepath.Clean(source)
-	args := []string{"-C", sourceClean, "log"}
+	// Keep diff-based selection (such as -G) consistent with the patch scan,
+	// including changes introduced by merges. This does not limit traversal.
+	args := []string{"-C", sourceClean, "log", "--diff-merges=first-parent"}
 	if includeReflogs {
 		args = append(args, "--reflog")
 	}

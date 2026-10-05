@@ -635,6 +635,13 @@ betterleaks git . --include=reflogs
 betterleaks git . --include=reflogs,commit-messages
 ```
 
+Merge commits are scanned against their first parent by default, while history
+traversal still includes all parents. This catches secrets introduced during a
+merge or conflict resolution. A secret can be reported again when merged into
+another branch. Combined diff output (`--cc` or `-c`) is unsupported and causes
+an error when encountered; use `--diff-merges=first-parent` or
+`--diff-merges=separate` for merge patches.
+
 Nonempty `--log-opts` uses one patch history stream so Git applies pathspecs,
 diff filters, and history options together. For example,
 `--log-opts="--all -- src/"` scans patches only under `src/`, including when
@@ -642,6 +649,10 @@ selected commits also change other paths. This also applies with
 `--include=commit-messages` or `--include=reflogs`. Without `--log-opts`, history
 can be partitioned across the bounded Git processes described above.
 `-j` still controls detection concurrency in either case.
+
+Betterleaks fixes the internal Git log format to preserve commit metadata and
+keep commit-message text distinct from patch headers. Presentation options such
+as `--format`, `--pretty`, and `--oneline` in `--log-opts` do not change that format.
 
 `--include=commit-messages` adds message scanning to the default patch scan.
 Each selected commit's full message is scanned once, including empty commits
