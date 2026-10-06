@@ -21,10 +21,12 @@ r.status == 200 && r.json?.success == true ? {
 
 func FirecrawlAPIKey() *config.Rule {
 	r := config.Rule{
-		ID:           "firecrawl-api-key",
-		Confidence:   "high",
-		Description:  "Detected a Firecrawl API Key, which may expose web scraping and crawling services and account credits to unauthorized use.",
-		Regex:        utils.GenerateUniqueTokenRegex(`fc-`+utils.Hex("32"), true),
+		ID:          "firecrawl-api-key",
+		Confidence:  "high",
+		Description: "Detected a Firecrawl API Key, which may expose web scraping and crawling services and account credits to unauthorized use.",
+		// Word boundaries instead of the unique-token suffix so keys followed by
+		// & or , (URL query strings, function args) are still caught.
+		Regex:        `\b(fc-[a-f0-9]{32})\b`,
 		Keywords:     []string{"fc-"},
 		ValidateExpr: firecrawlValidateExpr,
 		// 32 hex chars is short: <= 3.5 would drop ~4% of real keys, <= 3.0 drops none
@@ -32,15 +34,21 @@ func FirecrawlAPIKey() *config.Rule {
 		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
-	tps := utils.GenerateSampleSecrets("firecrawl", "fc-"+secrets.NewSecretWithEntropy(utils.Hex("32"), 3.5))
+	hex := secrets.NewSecretWithEntropy(utils.Hex("32"), 3.5)
+	key := "fc-" + hex
+	tps := utils.GenerateSampleSecrets("firecrawl", key)
 	tps = append(tps,
-		`app = FirecrawlApp(api_key="fc-384694d8124e473a977b88a305cf7a3b")`,
+		`app = FirecrawlApp(api_key="`+key+`")`,
+		`https://api.firecrawl.dev/v2/scrape?api_key=`+key+`&url=example.com`,
+		`scrape(`+key+`, timeout=30)`,
 	)
 	fps := []string{
 		// Too short
-		`FIRECRAWL_API_KEY=fc-384694d8124e473a977b88a305cf7a3`,
+		`FIRECRAWL_API_KEY=` + key[:len(key)-1],
 		// Too long
-		`FIRECRAWL_API_KEY=fc-384694d8124e473a977b88a305cf7a3b384694d8`,
+		`FIRECRAWL_API_KEY=` + key + hex[:8],
+		// Uppercase; Firecrawl only issues lowercase keys
+		`FIRECRAWL_API_KEY=FC-` + hex,
 		// Documentation placeholder
 		`FIRECRAWL_API_KEY=fc-YOUR_API_KEY`,
 		// Low entropy

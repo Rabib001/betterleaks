@@ -3554,7 +3554,7 @@ entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 [[rules]]
 id = "firecrawl-api-key"
 description = "Detected a Firecrawl API Key, which may expose web scraping and crawling services and account credits to unauthorized use."
-regex = '''(?i)\b(fc-[a-f0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+regex = '''\b(fc-[a-f0-9]{32})\b'''
 confidence = "high"
 keywords = ["fc-"]
 validate = '''

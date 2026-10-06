@@ -381,6 +381,80 @@ func TestFastlyValidationUsesTokenIntrospection(t *testing.T) {
 	}
 }
 
+func TestFirecrawlValidationUsesCreditUsage(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		body       string
+		status     report.ValidationStatus
+		reason     string
+	}{
+		{
+			name:       "valid",
+			statusCode: http.StatusOK,
+			body:       `{"success":true,"data":{"remainingCredits":500,"planCredits":500,"billingPeriodStart":null,"billingPeriodEnd":null}}`,
+			status:     report.ValidationStatusValid,
+		},
+		{
+			name:       "invalid",
+			statusCode: http.StatusUnauthorized,
+			body:       `{"success":false,"error":"Unauthorized: Invalid token"}`,
+			status:     report.ValidationStatusInvalid,
+			reason:     "Unauthorized",
+		},
+		{
+			name:       "ok without success",
+			statusCode: http.StatusOK,
+			body:       `{"success":false}`,
+			status:     report.ValidationStatusUnknown,
+		},
+		{
+			name:       "rate limited",
+			statusCode: http.StatusTooManyRequests,
+			body:       `{"success":false,"error":"Rate limit exceeded"}`,
+			status:     report.ValidationStatusUnknown,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			requests := 0
+			runtime, err := exprruntime.New(&http.Client{Transport: analysisFixtureTransport(func(request *http.Request) (*http.Response, error) {
+				requests++
+				assert.Equal(t, http.MethodGet, request.Method)
+				assert.Equal(t, "api.firecrawl.dev", request.URL.Host)
+				assert.Equal(t, "/v2/team/credit-usage", request.URL.Path)
+				assert.Equal(t, "Bearer fixture-secret", request.Header.Get("Authorization"))
+				return &http.Response{
+					StatusCode: test.statusCode,
+					Body:       io.NopCloser(strings.NewReader(test.body)),
+				}, nil
+			})})
+			require.NoError(t, err)
+
+			program, err := runtime.CompileValidation(firecrawlValidateExpr)
+			require.NoError(t, err)
+			value, err := runtime.EvalValidation(
+				t.Context(),
+				program,
+				map[string]string{"rule_id": "firecrawl-api-key", "secret": "fixture-secret"},
+				nil,
+				nil,
+				exprruntime.EvalOptions{},
+			)
+			require.NoError(t, err)
+			result := provider.ParseResult(value.Value)
+
+			assert.Equal(t, 1, requests)
+			assert.Equal(t, test.status, result.Status)
+			if test.reason != "" {
+				assert.Equal(t, test.reason, result.Reason)
+			}
+			assert.Empty(t, result.Metadata)
+		})
+	}
+}
+
 func TestCredentialAnalysisUnknownGrantsDoNotAddCapabilities(t *testing.T) {
 	result := evaluateProviderAnalysis(t, gitlabPatAnalyzeExpr, map[string]any{
 		"user_id": "42",
